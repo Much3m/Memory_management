@@ -27,10 +27,68 @@ int processDone = 0;
 // 프로세스를 종료하지 않기 위한 플래그
 int contFlag = 0;
 
+///////////////// FOR LRU ///////////////////////
+typedef struct node { //LRU 캐시를 위한 노드
+    int page; // page entry를 저장
+    struct node *prev;
+    struct node *next;
+} node;
+
+node *cache = NULL; // cache를 저장할 연결리스트 선언
+
+void init_cache() {cache = NULL;} // cache를 초기화
+
+node *new_node(int data) { // 새로운 노드를 생성하는 함수
+    node *n = (node *)malloc(sizeof(node)); // 노드를 동적할당
+    n->page = data;
+    n->next = NULL;
+    n->prev = NULL;
+    return (n);
+}
+
+void delete_cache(node *del) { // 노드를 삭제하는 함수
+    if (cache == NULL || del == NULL)
+        return;
+    if (cache == del) // 삭제할 함수가 head
+        cache = del->next;
+    if (del->next != NULL) // next가 null이 아닐 떄
+        del->next->prev = del->prev;
+    if (del->prev != NULL) // prev가 null이 아닐 때
+        del->prev->next = del->next;
+    free(del); // 삭제할 노드를 free
+}
+
+void insert_cache(int data) { // 최신의 data를 head에 넣는 함수
+    node *ptr = cache; // head를 pointing하는 포인터
+    node *n = new_node(data); // 삽입할 새로운 노드 생성
+    while (ptr != NULL) {
+        if (ptr->page == data) { // 일치하는 데이터(page entry)가 존재한다면
+            delete_cache(ptr); // 이미 존재하는 노드를 최신으로 갱신하기 위한 삭제
+            break;
+        }
+        ptr = ptr->next;
+    }
+    n->prev = NULL;
+    n->next = cache; // 새로운 노드를 연결리스트의 제일 앞에 삽입
+
+    if (cache != NULL)
+        cache->prev = n;
+    cache = n; // 헤드노드를 새로운 노드로 변경
+}
+
+////////////////////////////////////////////////////
+
 //TODO-2. 입력된 페이지 오프셋을 통해 페이지 크기 및 페이지 개수를 계산
+
+int powof(int a, int b){
+	if (b == 0)
+		return (1);
+	return (a * powof(a, b-1));
+}
+
 void calculatePageInfo(int page_bits) {
-    page_size = //FILL ME
-    num_pages = //FILL ME
+    page_size = powof(2,page_bits); // offset개수의 bit로 나타낼 수 있는 경우의 수 만큼 page_size를 설정
+    num_pages = powof(2, ADDR_SIZE - page_bits); // page의 개수 = (Logical address의 전체 경우의 수) / (page size)
 }
 
 // 가상 주소에서 페이지 번호 추출
@@ -60,15 +118,19 @@ int doPageReplacement(char policy) {
         break;
     case 'r': 
     case 'R': //TODO-4-1: 교체 페이지를 임의(random)로 선정
-        // rand() 함수를 사용.
-        // 기타 지역변수,정적변수 필요한 경우 추가하여 사용        
+        while (1) {
+            victimPage = rand() % num_pages; // random으로 victimPage를 설정함
+            if (pageTable[victimPage] != -1) break; // 유효한 페이지면 탈출
+        }        
         break;
     case 'a':
-    case 'A':
-        //(Option)TODO-4-2: 기타 교체 정책 구현해보기
-        //FIFO, LRU, 나만의 정책 등, 다른 교체 알고리즘울 조사 후 구현
-        //1개 이상의 교체 정책 추가로 구현 가능. 
-        //다수의 알고리즘 개발 시, 알고리즘 선택 변수(char policy)는 a,b,c,...순으로 구현 
+    case 'A': // LRU 방식의 Policy 구현
+        for(node *ptr = cache; ptr !=NULL; ptr = ptr->next) { // cache에서 제일 마지막 노드(가장 오래전에 사용한 노드)를 찾는 반복문
+            if (ptr->next == NULL){
+                victimPage = ptr->page; // 찾았다면 해당 pageentry를 victimPage로 선정
+                delete_cache(ptr); // 해당 page를 LRU cache에서 삭제
+            }
+        }
         break;
 
     default:
@@ -115,18 +177,19 @@ void handlePageFault(int pageNumber, char policy) {
 
 //TODO-1. 'Ctrl+C' 키보드 인터럽트(SIGINT) 발생 시 처리 루틴
 void myHandler() {
-    //SIGINT 시그널 발생 시 기본 동작
     printf("\n(Interrupt) 현재까지 발생한 페이지폴트의 수: %d\n", pageFaults);
 
     //모든 작업이 완료되었을 시, 시그널 발생 시 동작: 
-    if (/* FILL ME */) {
-        //1. cont_flag 변수를 수정하여 프로세스가 종료될 수 있도록 함. 
-        //2. '학번/이름'을 출력함
+    if (processDone == 1) { // 전체 process가 종료되었다면
+        contFlag = 1; //contFlag를 1로 변화시켜 main함수에서의 while문의 동작을 멈춤
+        printf("2018440017 / 김민석(Minseok-Kim)\n\n"); // 학번/이름을 출력
     }
+    signal(SIGINT, myHandler); 
 }
 
 int main(int argc, char* argv[]) {
     //TODO-1. SIGINT 시그널 발생시 핸들러 myHandler 구현 및 등록(install)
+    signal(SIGINT, myHandler); // SIGINT(ctrl+c) 가 입력될 경우 myHandler함수 호출.
     
     srand(time(NULL));
     if (argc <= 2) {       
@@ -134,6 +197,7 @@ int main(int argc, char* argv[]) {
         printf("1st parameter: page offset in bits\n2nd parameter: replacement policy\n");
         return -1;
     }
+    init_cache(); // LRU cache를 초기화함
 
     int page_bits = atoi(argv[1]);  //입력받은 페이지 오프셋(offset) 크기
     char policy = argv[2][0];       //입력받은 페이지 교체 정책
@@ -145,12 +209,11 @@ int main(int argc, char* argv[]) {
         page_size, num_pages, policy);
     
   
-    // 페이지 테이블 할당 및 초기화
-    pageTable = (int*)malloc(/*TODO-3*/);
-    // 페이지 테이블 초기화
+    pageTable = (int*)malloc(num_pages * sizeof(int)); // page의 개수만큼 pagetable을 생성
+
     for (int i = 0; i < num_pages; i++) 
         pageTable[i] = -1;    
-    // 물리 프레임 초기화
+
     for (int i = 0; i < NUM_FRAMES; i++) 
         physicalMemory[i] = 0;
     
@@ -162,7 +225,6 @@ int main(int argc, char* argv[]) {
         perror("파일 열기 오류");
         return EXIT_FAILURE;
     }
-
     // 파일 내 데이터: 가상 메모리 주소
     // 모든 메모리 주소에 대해서
     int lineNumber = 0;
@@ -171,7 +233,7 @@ int main(int argc, char* argv[]) {
         fgets(line, MAX_LINE_SIZE, file);
 
         int address;        
-        sscanf(line, "%d", address);
+        sscanf(line, "%d", &address);
 
         // 가상 주소에서 페이지 번호(pageNumber)를 얻음
         int pageNumber = getPageNumber(address);
@@ -182,12 +244,12 @@ int main(int argc, char* argv[]) {
             handlePageFault(pageNumber, policy); //페이지 폴트 핸들러            
             frameNumber = pageTable[pageNumber];
         }
-                        
+        insert_cache(pageNumber); // cache정보를 업데이트. (이미 존재하는 page라면 최신으로 갱신, 새로운 page라면 삽입->victim page는 pagefault handler에서 이미 삭제)
         //해당 물리 프레임을 접근하고 접근 횟수를 셈
         physicalMemory[frameNumber]++;
 
         lineNumber++;
-        usleep(1000); //매 페이지 접근 처리 후 0.001초간 멈춤
+        // usleep(1000); //매 페이지 접근 처리 후 0.001초간 멈춤
         //이 delay는 프로세스 수행 중, signal발생 처리과정을 확인하기 위함이며,
         //구현을 수행하는 도중에는 주석처리하여, 빠르게 결과확인을 하기 바랍니다.
     }
