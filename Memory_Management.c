@@ -182,7 +182,7 @@ void myHandler() {
     //모든 작업이 완료되었을 시, 시그널 발생 시 동작: 
     if (processDone == 1) { // 전체 process가 종료되었다면
         contFlag = 1; //contFlag를 1로 변화시켜 main함수에서의 while문의 동작을 멈춤
-        printf("2018440017 / 김민석(Minseok-Kim)\n\n"); // 학번/이름을 출력
+        printf("20******** / ***\n\n"); // 학번/이름을 출력
     }
     signal(SIGINT, myHandler); 
 }
